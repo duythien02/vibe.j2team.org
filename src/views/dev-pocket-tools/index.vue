@@ -13,6 +13,20 @@ type RegexMatch = {
   groups: string[]
 }
 
+type JwtTimeField = {
+  key: string
+  raw: string
+  formatted: string
+}
+
+type CaseVariant = {
+  label: string
+  value: string
+}
+
+type JsonPrimitive = string | number | boolean | null
+type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
+
 type OutputTone = 'default' | 'success' | 'error'
 
 type CopyStatus = {
@@ -31,6 +45,20 @@ const regexPattern = ref('\\b(dev|tool)\\b')
 const regexFlags = ref('gi')
 const regexSample = ref('Dev Pocket Tools giúp dev kiểm tra regex ngay trong trình duyệt.')
 const slugInput = ref('Bộ công cụ bỏ túi dành cho lập trình viên Việt Nam')
+const jwtInput = ref(
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpXVCBEZWNvZGVyIiwiaWF0IjoxNzQxMzA0MjAwLCJleHAiOjE3NDEzMDc4MDB9.signature',
+)
+const hashInput = ref('Dev Pocket Tools')
+const hashAlgorithm = ref('SHA-256')
+const hashOutput = ref('')
+const hashStatus = ref<{ tone: OutputTone; message: string }>({
+  tone: 'default',
+  message: 'Nhập text và sinh hash bằng Web Crypto API.',
+})
+const caseInput = ref('dev pocket tools v2')
+const jsonTypeInput = ref('{\n  "id": 1,\n  "name": "J2TEAM",\n  "tags": ["tools", "dev"],\n  "profile": {\n    "active": true,\n    "score": 9.8\n  }\n}')
+const uuidCount = ref(3)
+const uuidList = ref<string[]>([])
 const copyStatus = ref<CopyStatus | null>(null)
 
 const jsonResult = computed(() => {
@@ -181,6 +209,94 @@ const slugResult = computed(() => {
   }
 })
 
+const jwtResult = computed(() => {
+  const source = jwtInput.value.trim()
+
+  if (!source) {
+    return {
+      tone: 'default' as const,
+      message: 'Dán JWT để decode header và payload.',
+      header: '',
+      payload: '',
+      timeFields: [] as JwtTimeField[],
+    }
+  }
+
+  const segments = source.split('.')
+
+  if (segments.length < 2) {
+    return {
+      tone: 'error' as const,
+      message: 'JWT phải có ít nhất 2 phần: header.payload.',
+      header: '',
+      payload: '',
+      timeFields: [] as JwtTimeField[],
+    }
+  }
+
+  try {
+    const headerText = decodeBase64UrlToText(segments[0] ?? '')
+    const payloadText = decodeBase64UrlToText(segments[1] ?? '')
+    const headerJson = JSON.parse(headerText) as JsonValue
+    const payloadJson = JSON.parse(payloadText) as JsonValue
+
+    return {
+      tone: 'success' as const,
+      message: 'Đã decode JWT. Signature chưa được verify trong v2.',
+      header: JSON.stringify(headerJson, null, 2),
+      payload: JSON.stringify(payloadJson, null, 2),
+      timeFields: extractJwtTimeFields(payloadJson),
+    }
+  } catch (error) {
+    return {
+      tone: 'error' as const,
+      message: error instanceof Error ? error.message : 'Không thể decode JWT.',
+      header: '',
+      payload: '',
+      timeFields: [] as JwtTimeField[],
+    }
+  }
+})
+
+const caseVariants = computed(() => {
+  const words = splitWords(caseInput.value)
+
+  return [
+    { label: 'camelCase', value: toCamelCase(words) },
+    { label: 'snake_case', value: words.join('_') },
+    { label: 'kebab-case', value: words.join('-') },
+    { label: 'PascalCase', value: toPascalCase(words) },
+    { label: 'CONSTANT_CASE', value: words.join('_').toUpperCase() },
+  ] satisfies CaseVariant[]
+})
+
+const jsonTypeResult = computed(() => {
+  const source = jsonTypeInput.value.trim()
+
+  if (!source) {
+    return {
+      tone: 'default' as const,
+      message: 'Nhập JSON mẫu để sinh interface TypeScript.',
+      output: '',
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(source) as JsonValue
+    return {
+      tone: 'success' as const,
+      message: 'Đã sinh TypeScript từ JSON mẫu.',
+      output: generateTypeScriptType('RootPayload', parsed),
+    }
+  } catch (error) {
+    return {
+      tone: 'error' as const,
+      message: error instanceof Error ? error.message : 'JSON không hợp lệ.',
+      output: '',
+    }
+  }
+})
+
 function formatJson() {
   if (jsonResult.value.output) jsonInput.value = jsonResult.value.output
 }
@@ -222,6 +338,51 @@ function useConvertedTimestamp() {
 
 function useDecodedUrl() {
   if (urlResult.value.decoded && !urlResult.value.decoded.startsWith('Chuỗi hiện tại')) urlInput.value = urlResult.value.decoded
+}
+
+async function generateHash() {
+  const source = hashInput.value
+
+  if (!source) {
+    hashOutput.value = ''
+    hashStatus.value = {
+      tone: 'error',
+      message: 'Nhập nội dung trước khi sinh hash.',
+    }
+    return
+  }
+
+  if (!('crypto' in window) || !('subtle' in window.crypto)) {
+    hashOutput.value = ''
+    hashStatus.value = {
+      tone: 'error',
+      message: 'Trình duyệt hiện tại không hỗ trợ Web Crypto API.',
+    }
+    return
+  }
+
+  try {
+    const digest = await window.crypto.subtle.digest(hashAlgorithm.value, new TextEncoder().encode(source))
+    hashOutput.value = Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
+    hashStatus.value = {
+      tone: 'success',
+      message: `Đã sinh ${hashAlgorithm.value}.`,
+    }
+  } catch (error) {
+    hashOutput.value = ''
+    hashStatus.value = {
+      tone: 'error',
+      message: error instanceof Error ? error.message : 'Không thể sinh hash.',
+    }
+  }
+}
+
+function generateUuids() {
+  const total = Math.min(Math.max(uuidCount.value, 1), 20)
+  uuidCount.value = total
+  uuidList.value = Array.from({ length: total }, () => window.crypto.randomUUID())
 }
 
 let copyTimer = 0
@@ -274,6 +435,35 @@ function decodeBase64ToText(value: string) {
   return new TextDecoder().decode(bytes)
 }
 
+function decodeBase64UrlToText(value: string) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
+  const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4))
+
+  return decodeBase64ToText(`${normalized}${padding}`)
+}
+
+function extractJwtTimeFields(value: JsonValue) {
+  if (!isJsonObject(value)) {
+    return [] as JwtTimeField[]
+  }
+
+  return ['iat', 'exp', 'nbf']
+    .map((key) => {
+      const rawValue = value[key]
+
+      if (typeof rawValue !== 'number') {
+        return null
+      }
+
+      return {
+        key,
+        raw: rawValue.toString(),
+        formatted: new Date(rawValue * 1000).toLocaleString('vi-VN'),
+      }
+    })
+    .filter((field): field is JwtTimeField => field !== null)
+}
+
 function toSlug(value: string) {
   return value
     .normalize('NFD')
@@ -293,11 +483,90 @@ function formatDateTimeLocal(date: Date) {
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day}T${hours}:${minutes}`
 }
+
+function splitWords(value: string) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .replace(/[^A-Za-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase())
+}
+
+function toCamelCase(words: string[]) {
+  return words
+    .map((word, index) => (index === 0 ? word : `${word.charAt(0).toUpperCase()}${word.slice(1)}`))
+    .join('')
+}
+
+function toPascalCase(words: string[]) {
+  return words.map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join('')
+}
+
+function isJsonObject(value: JsonValue): value is { [key: string]: JsonValue } {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function jsonValueToType(value: JsonValue, indentLevel: number): string {
+  if (value === null) {
+    return 'null'
+  }
+
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      return 'never[]'
+    }
+
+    const itemTypes = Array.from(new Set(value.map((item) => jsonValueToType(item, indentLevel)))).join(' | ')
+    return `(${itemTypes})[]`
+  }
+
+  if (isJsonObject(value)) {
+    const indent = '  '.repeat(indentLevel)
+    const childIndent = '  '.repeat(indentLevel + 1)
+    const lines = Object.entries(value).map(([key, child]) => `${childIndent}${formatPropertyKey(key)}: ${jsonValueToType(child, indentLevel + 1)}`)
+
+    return `{\n${lines.join(';\n')};\n${indent}}`
+  }
+
+  if (typeof value === 'string') {
+    return 'string'
+  }
+
+  if (typeof value === 'number') {
+    return 'number'
+  }
+
+  return 'boolean'
+}
+
+function formatPropertyKey(key: string) {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : `'${key}'`
+}
+
+function generateTypeScriptType(name: string, value: JsonValue) {
+  const typeName = toPascalCase(splitWords(name)) || 'GeneratedType'
+  const body = jsonValueToType(value, 0)
+
+  if (isJsonObject(value)) {
+    return `interface ${typeName} ${body}`
+  }
+
+  return `type ${typeName} = ${body}`
+}
+
+generateHash()
+generateUuids()
 </script>
 
 <template>
   <div class="min-h-screen bg-bg-deep text-text-primary">
-    <div class="mx-auto flex max-w-6xl flex-col px-4 py-6 sm:px-6 lg:px-8">
+    <div class="mx-auto flex w-full max-w-none flex-col px-4 py-6 sm:px-6 lg:px-8">
       <header class="animate-fade-up border border-border-default bg-bg-surface p-5 sm:p-8">
         <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div class="max-w-3xl">
@@ -339,7 +608,151 @@ function formatDateTimeLocal(date: Date) {
           Bộ công cụ
         </h2>
 
-        <div class="grid gap-5 lg:grid-cols-2">
+        <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          <article class="animate-fade-up animate-delay-2 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-coral">07</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">JWT Decoder</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Decode header và payload của JWT để đọc claim nhanh ngay trên client.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('jwt', jwtResult.payload)">Copy Payload</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">JWT</label>
+            <textarea v-model="jwtInput" rows="5" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+
+            <p class="mt-4 text-sm" :class="{ 'text-text-secondary': jwtResult.tone === 'default', 'text-accent-sky': jwtResult.tone === 'success', 'text-accent-amber': jwtResult.tone === 'error' }">
+              {{ jwtResult.message }}
+            </p>
+
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+              <div class="border border-border-default bg-bg-deep px-4 py-3">
+                <p class="text-xs font-display tracking-[0.2em] text-text-dim">HEADER</p>
+                <pre class="mt-2 overflow-x-auto text-sm whitespace-pre-wrap"><code>{{ jwtResult.header || 'Phần header sẽ hiện ở đây.' }}</code></pre>
+              </div>
+              <div class="border border-border-default bg-bg-deep px-4 py-3">
+                <p class="text-xs font-display tracking-[0.2em] text-text-dim">PAYLOAD</p>
+                <pre class="mt-2 overflow-x-auto text-sm whitespace-pre-wrap"><code>{{ jwtResult.payload || 'Phần payload sẽ hiện ở đây.' }}</code></pre>
+              </div>
+            </div>
+
+            <div class="mt-4 border border-border-default bg-bg-deep px-4 py-3">
+              <p class="text-xs font-display tracking-[0.2em] text-text-dim">TIME CLAIMS</p>
+              <div v-if="jwtResult.timeFields.length" class="mt-3 space-y-2">
+                <div v-for="field in jwtResult.timeFields" :key="field.key" class="border border-border-default px-3 py-2 text-sm">
+                  <p><span class="text-accent-amber">{{ field.key }}</span>: {{ field.raw }}</p>
+                  <p class="mt-1 text-text-secondary">{{ field.formatted }}</p>
+                </div>
+              </div>
+              <p v-else class="mt-2 text-sm text-text-secondary">Không có `iat`, `exp` hoặc `nbf` để hiển thị.</p>
+            </div>
+          </article>
+
+          <article class="animate-fade-up animate-delay-3 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-amber">08</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">Hash Generator</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Sinh hash từ text bằng Web Crypto API với các thuật toán phổ biến cho dev.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('hash', hashOutput)">Copy Hash</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">TEXT</label>
+            <textarea v-model="hashInput" rows="4" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+
+            <div class="mt-4 flex flex-col gap-3 sm:flex-row">
+              <select v-model="hashAlgorithm" class="border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral">
+                <option value="SHA-1">SHA-1</option>
+                <option value="SHA-256">SHA-256</option>
+                <option value="SHA-384">SHA-384</option>
+                <option value="SHA-512">SHA-512</option>
+              </select>
+              <button type="button" class="border border-accent-coral bg-accent-coral px-4 py-3 text-sm font-medium text-bg-deep transition hover:opacity-90" @click="generateHash">Sinh hash</button>
+            </div>
+
+            <p class="mt-4 text-sm" :class="{ 'text-text-secondary': hashStatus.tone === 'default', 'text-accent-sky': hashStatus.tone === 'success', 'text-accent-amber': hashStatus.tone === 'error' }">
+              {{ hashStatus.message }}
+            </p>
+
+            <div class="mt-4 border border-border-default bg-bg-deep px-4 py-3">
+              <p class="text-xs font-display tracking-[0.2em] text-text-dim">HASH OUTPUT</p>
+              <p class="mt-2 break-all font-mono text-sm">{{ hashOutput || 'Kết quả hash sẽ hiện ở đây.' }}</p>
+            </div>
+          </article>
+
+          <article class="animate-fade-up animate-delay-4 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-sky">09</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">Case Converter</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Đổi nhanh giữa các naming convention phổ biến khi viết code hoặc API payload.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('case', caseVariants[0]?.value ?? '')">Copy camelCase</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">SOURCE TEXT</label>
+            <textarea v-model="caseInput" rows="4" spellcheck="false" class="mt-2 w-full border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+              <div v-for="variant in caseVariants" :key="variant.label" class="border border-border-default bg-bg-deep px-4 py-3">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-xs font-display tracking-[0.2em] text-text-dim">{{ variant.label }}</p>
+                  <button type="button" class="text-xs text-text-secondary transition hover:text-accent-coral" @click="copyText(`case-${variant.label}`, variant.value)">Copy</button>
+                </div>
+                <p class="mt-2 break-all font-mono text-sm">{{ variant.value || '...' }}</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="animate-fade-up animate-delay-5 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-coral">10</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">JSON to TypeScript</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Sinh nhanh type hoặc interface TypeScript từ JSON mẫu để giảm thao tác lặp.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('json-type', jsonTypeResult.output)">Copy Type</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">JSON SAMPLE</label>
+            <textarea v-model="jsonTypeInput" rows="8" spellcheck="false" class="mt-2 min-h-40 w-full border border-border-default bg-bg-deep px-4 py-3 font-mono text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+
+            <p class="mt-4 text-sm" :class="{ 'text-text-secondary': jsonTypeResult.tone === 'default', 'text-accent-sky': jsonTypeResult.tone === 'success', 'text-accent-amber': jsonTypeResult.tone === 'error' }">
+              {{ jsonTypeResult.message }}
+            </p>
+
+            <div class="mt-4 border border-border-default bg-bg-deep px-4 py-3">
+              <p class="text-xs font-display tracking-[0.2em] text-text-dim">TYPESCRIPT</p>
+              <pre class="mt-2 overflow-x-auto text-sm whitespace-pre-wrap"><code>{{ jsonTypeResult.output || 'Kết quả TypeScript sẽ hiện ở đây.' }}</code></pre>
+            </div>
+          </article>
+
+          <article class="animate-fade-up animate-delay-6 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="font-display text-xs tracking-[0.25em] text-accent-amber">11</p>
+                <h3 class="mt-2 font-display text-xl font-semibold">UUID Generator</h3>
+                <p class="mt-2 text-sm leading-6 text-text-secondary">Tạo UUID v4 ngay trên trình duyệt để dùng cho mock data, seed hoặc test.</p>
+              </div>
+              <button type="button" class="border border-border-default px-3 py-2 text-xs text-text-secondary transition hover:border-accent-coral hover:text-text-primary" @click="copyText('uuid-list', uuidList.join('\n'))">Copy All</button>
+            </div>
+
+            <label class="mt-5 block text-xs font-display tracking-[0.2em] text-text-dim">SỐ LƯỢNG</label>
+            <div class="mt-2 flex flex-col gap-3 sm:flex-row">
+              <input v-model.number="uuidCount" type="number" min="1" max="20" class="min-w-0 flex-1 border border-border-default bg-bg-deep px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent-coral" />
+              <button type="button" class="border border-accent-coral bg-accent-coral px-4 py-3 text-sm font-medium text-bg-deep transition hover:opacity-90" @click="generateUuids">Tạo UUID</button>
+            </div>
+
+            <div class="mt-4 space-y-2">
+              <div v-for="uuid in uuidList" :key="uuid" class="flex flex-col gap-2 border border-border-default bg-bg-deep px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <p class="break-all font-mono text-sm">{{ uuid }}</p>
+                <button type="button" class="text-xs text-text-secondary transition hover:text-accent-coral" @click="copyText(`uuid-${uuid}`, uuid)">Copy</button>
+              </div>
+            </div>
+          </article>
+
           <article class="animate-fade-up animate-delay-2 border border-border-default bg-bg-surface p-5 transition-all duration-300 hover:-translate-y-1 hover:border-accent-coral hover:bg-bg-elevated hover:shadow-lg hover:shadow-accent-coral/5">
             <div class="flex items-start justify-between gap-4">
               <div>
@@ -548,6 +961,7 @@ function formatDateTimeLocal(date: Date) {
               <p class="mt-2 break-all font-mono text-sm">{{ slugResult.slug || 'slug-se-hien-o-day' }}</p>
             </div>
           </article>
+
         </div>
       </section>
 
