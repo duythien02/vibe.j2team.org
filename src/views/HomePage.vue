@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { defineAsyncComponent } from 'vue'
+import { ref, defineAsyncComponent } from 'vue'
 import BackToTop from '@/components/BackToTop.vue'
+import FixedCTA from '@/components/home/FixedCTA.vue'
 import HeroSection from '@/components/home/HeroSection.vue'
 import PagesGrid from '@/components/home/PagesGrid.vue'
+
+const heroRef = ref<HTMLElement>()
 
 const TechStackSection = defineAsyncComponent(
   () => import('@/components/home/TechStackSection.vue'),
@@ -18,7 +21,9 @@ const SiteFooter = defineAsyncComponent(() => import('@/components/home/SiteFoot
 
 <template>
   <div class="min-h-screen bg-bg-deep text-text-primary font-body">
-    <HeroSection />
+    <div ref="heroRef">
+      <HeroSection />
+    </div>
     <PagesGrid />
     <TechStackSection />
     <ContributeSection />
@@ -26,6 +31,7 @@ const SiteFooter = defineAsyncComponent(() => import('@/components/home/SiteFoot
     <ProductsSection />
     <SponsorsSection />
     <SiteFooter />
+    <FixedCTA :observe-target="heroRef" />
     <BackToTop />
   </div>
 </template>
