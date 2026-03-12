@@ -58,3 +58,18 @@ export interface MbtiResult {
   soulmateDesc: string
   warning: string
 }
+
+export interface DevilResult {
+  type: string
+  name: string
+  subtitle: string
+  overview: string
+  traits: string[]
+  signs: string[]
+  nemesis: string
+  nemesisDesc: string
+  soulmate: string
+  soulmateDesc: string
+  prophecy: string
+  warning: string
+}

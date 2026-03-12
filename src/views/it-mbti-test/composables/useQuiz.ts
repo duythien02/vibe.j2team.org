@@ -1,12 +1,13 @@
-import { computed, ref } from 'vue'
-import { questions as questionsVi } from '../data/questions'
-import { questionsEn } from '../data/questions.en'
-import { devilResult as devilResultVi, results as resultsVi } from '../data/results'
-import { devilResultEn, resultsEn } from '../data/results.en'
-import type { MbtiResult, QuizPhase, QuizQuestion, ScoreMap } from '../types'
+import { computed, ref, shallowRef, watch } from 'vue'
+import type { DevilResult, MbtiResult, QuizPhase, QuizQuestion, ScoreMap } from '../types'
 import { useLocale } from './useLocale'
 
 const DEVIL_THRESHOLD = 3
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url)
+  return res.json() as Promise<T>
+}
 
 export function useQuiz() {
   const { locale } = useLocale()
@@ -15,19 +16,71 @@ export function useQuiz() {
   const currentIndex = ref(0)
   const answers = ref<string[]>([])
   const devilCount = ref(0)
+  const loading = ref(true)
 
-  const questions = computed(() => (locale.value === 'vi' ? questionsVi : questionsEn))
-  const currentQuestion = computed<QuizQuestion>(
-    () => questions.value[currentIndex.value] as QuizQuestion,
+  const questionsVi = shallowRef<QuizQuestion[]>([])
+  const questionsEn = shallowRef<QuizQuestion[]>([])
+  const resultsVi = shallowRef<Record<string, MbtiResult>>({})
+  const resultsEn = shallowRef<Record<string, MbtiResult>>({})
+  const devilResultVi = shallowRef<DevilResult | null>(null)
+  const devilResultEn = shallowRef<DevilResult | null>(null)
+
+  // Load Vietnamese data immediately (default locale)
+  const loadVi = Promise.all([
+    fetchJson<QuizQuestion[]>('/data/it-mbti-questions-vi.json').then((d) => {
+      questionsVi.value = d
+    }),
+    fetchJson<{ results: Record<string, MbtiResult>; devilResult: DevilResult }>(
+      '/data/it-mbti-results-vi.json',
+    ).then((d) => {
+      resultsVi.value = d.results
+      devilResultVi.value = d.devilResult
+    }),
+  ])
+
+  loadVi.then(() => {
+    loading.value = false
+  })
+
+  // Load English data lazily when needed
+  let enLoaded = false
+  watch(
+    locale,
+    (val) => {
+      if (val === 'en' && !enLoaded) {
+        enLoaded = true
+        Promise.all([
+          fetchJson<QuizQuestion[]>('/data/it-mbti-questions-en.json').then((d) => {
+            questionsEn.value = d
+          }),
+          fetchJson<{ results: Record<string, MbtiResult>; devilResult: DevilResult }>(
+            '/data/it-mbti-results-en.json',
+          ).then((d) => {
+            resultsEn.value = d.results
+            devilResultEn.value = d.devilResult
+          }),
+        ])
+      }
+    },
+    { immediate: true },
+  )
+
+  const questions = computed(() => (locale.value === 'vi' ? questionsVi.value : questionsEn.value))
+  const currentQuestion = computed<QuizQuestion | null>(
+    () => questions.value[currentIndex.value] ?? null,
   )
 
   const progress = computed(() => ({
     current: currentIndex.value + 1,
     total: questions.value.length,
-    pct: Math.round((currentIndex.value / questions.value.length) * 100),
+    pct:
+      questions.value.length > 0
+        ? Math.round((currentIndex.value / questions.value.length) * 100)
+        : 0,
   }))
 
   function handleAnswer(label: string) {
+    if (!currentQuestion.value) return
     const opt = currentQuestion.value.options.find((o) => o.label === label)
     if (opt?.trait === 'hidden') devilCount.value++
 
@@ -69,12 +122,14 @@ export function useQuiz() {
     )
   })
 
-  const activeResults = computed(() => (locale.value === 'vi' ? resultsVi : resultsEn))
-  const mbtiResult = computed<MbtiResult>(
-    () => (activeResults.value[mbtiType.value] ?? activeResults.value['INTJ']) as MbtiResult,
+  const activeResults = computed(() => (locale.value === 'vi' ? resultsVi.value : resultsEn.value))
+  const mbtiResult = computed<MbtiResult | null>(
+    () => activeResults.value[mbtiType.value] ?? activeResults.value['INTJ'] ?? null,
   )
 
-  const devilResult = computed(() => (locale.value === 'vi' ? devilResultVi : devilResultEn))
+  const devilResult = computed(() =>
+    locale.value === 'vi' ? devilResultVi.value : devilResultEn.value,
+  )
 
   const traitPcts = computed(() => {
     const s = scores.value
@@ -101,6 +156,7 @@ export function useQuiz() {
   }
 
   return {
+    loading,
     phase,
     currentIndex,
     currentQuestion,

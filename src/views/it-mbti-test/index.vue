@@ -9,6 +9,7 @@ const { locale, toggle: toggleLocale } = useLocale()
 const t = computed(() => ui[locale.value])
 
 const {
+  loading,
   phase,
   currentQuestion,
   progress,
@@ -80,17 +81,22 @@ function onReset() {
         </div>
 
         <button
-          class="w-full bg-accent-coral text-white font-display text-lg py-4 hover:opacity-90 active:scale-[0.99] transition-all cursor-pointer"
+          class="w-full bg-accent-coral text-white font-display text-lg py-4 hover:opacity-90 active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="loading"
           @click="phase = 'question'"
         >
-          {{ t.startBtn }}
+          {{ loading ? '...' : t.startBtn }}
         </button>
       </div>
     </Transition>
 
     <!-- QUESTION -->
     <Transition name="fade" mode="out-in">
-      <div v-if="phase === 'question'" key="question" class="max-w-2xl mx-auto px-4 py-8">
+      <div
+        v-if="phase === 'question' && currentQuestion"
+        key="question"
+        class="max-w-2xl mx-auto px-4 py-8"
+      >
         <!-- Progress -->
         <div class="mb-6">
           <div class="flex justify-between text-xs text-text-dim mb-2">
@@ -189,7 +195,7 @@ function onReset() {
         </div>
 
         <!-- ===== MBTI TAB ===== -->
-        <div v-show="activeTab === 'mbti'">
+        <div v-if="mbtiResult" v-show="activeTab === 'mbti'">
           <!-- Type header -->
           <div class="text-center mb-8">
             <div class="text-5xl mb-3">🧠</div>
@@ -329,7 +335,7 @@ function onReset() {
         </div>
 
         <!-- ===== DEVIL TAB ===== -->
-        <div v-show="activeTab === 'devil' && showDevilPanel">
+        <div v-if="devilResult" v-show="activeTab === 'devil' && showDevilPanel">
           <!-- Devil header -->
           <div class="text-center mb-8">
             <div class="text-6xl mb-3">👿</div>
